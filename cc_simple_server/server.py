@@ -13,8 +13,8 @@ db = DB()
 async def lifespan(app: FastAPI):
     # Init
     yield
-    print("Cleaning up...")
     # Clean up 
+    print("Cleaning up...")
     db.close()
 
 app = FastAPI(lifespan=lifespan)
@@ -122,6 +122,7 @@ async def check_existence(task_id: int):
 
     Args:
         task_id (int): The ID of the task to be checked
+        
     Returns:
         bool: Boolean variable indicating task's existence
     """
