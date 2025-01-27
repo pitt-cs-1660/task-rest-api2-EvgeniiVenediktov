@@ -4,12 +4,20 @@ from fastapi import status
 from cc_simple_server.models import TaskCreate
 from cc_simple_server.models import TaskRead
 from cc_simple_server.database import init_db
-from cc_simple_server.database import get_db_connection
+from cc_simple_server.database import DB
+from contextlib import asynccontextmanager
 
-# init
-init_db()
 
-app = FastAPI()
+db = DB()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Init
+    yield
+    print("Cleaning up...")
+    # Clean up 
+    db.close()
+
+app = FastAPI(lifespan=lifespan)
 
 ############################################
 # Edit the code below this line
@@ -37,18 +45,7 @@ async def create_task(task_data: TaskCreate):
         TaskRead: The created task data
     """
 
-    
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        "INSERT INTO tasks (title, description, completed) VALUES (?, ?, ?)", 
-        (task_data.title, task_data.description, task_data.completed),
-    )
-    id = cursor.lastrowid
-
-    conn.commit()
-    conn.close()
+    id = db.insert_task(task_data)
     return TaskRead(id=id, title=task_data.title, description=task_data.description, completed=task_data.completed)
 
     
@@ -66,14 +63,7 @@ async def get_tasks():
     Returns:
         list[TaskRead]: A list of all tasks in the database
     """
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    tasks = []
-
-    for row in cursor.execute("SELECT id, title, description, completed FROM tasks;"):
-        tasks.append(TaskRead(id=row[0], title=row[1], description=row[2], completed=row[3]))
-        print(row)
-    conn.close()
+    tasks = db.get_tasks()
     return tasks
 
 
@@ -90,21 +80,13 @@ async def update_task(task_id: int, task_data: TaskCreate):
     Returns:
         TaskRead: The updated task data
     """
+    # check existence
+    exists = db.does_task_exist(task_id)
+    if not exists:
+        raise HTTPException(status_code=404, detail="Not found")
 
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        "UPDATE tasks SET (title, description, completed) = (?, ?, ?) WHERE id=?",
-        (task_data.title,
-        task_data.description,
-        task_data.completed,
-        task_id),    
-    )
-
-    conn.commit()
-    conn.close()
-    return TaskRead(id=task_id, title=task_data.title, description=task_data.description, completed=task_data.completed)
+    updated = db.update_task(task_id, task_data)
+    return updated
 
 
 
@@ -120,10 +102,28 @@ async def delete_task(task_id: int):
     Returns:
         dict: A message indicating that the task was deleted successfully
     """
+    # check existence
+    exists = db.does_task_exist(task_id)
+    if not exists:
+        raise HTTPException(status_code=404, detail="Not found")
 
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute(f"DELETE FROM tasks WHERE id={task_id};")
-    conn.commit()
-    conn.close()
-    return {"message": f"Task {task_id} deleted successfully"}
+    deleted = db.delete_task(task_id)
+    if deleted:
+        return {"message": f"Task {task_id} deleted successfully"}
+    else:
+        raise HTTPException(status_code=500, detail="Task was not deleted")
+    
+
+
+@app.get("/tasks/{task_id}/")
+async def check_existence(task_id: int):
+    """
+    Check if a task exists by its ID
+
+    Args:
+        task_id (int): The ID of the task to be checked
+    Returns:
+        bool: Boolean variable indicating task's existence
+    """
+
+    return db.does_task_exist(task_id)
